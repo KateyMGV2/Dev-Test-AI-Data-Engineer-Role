@@ -29,51 +29,67 @@ The ingestion is handled using **n8n**, which:
 
 ### a. KPI Computation (Last 30 Days vs Prior 30 Days)
 ```sql
--- File: sql_models/kpi_computation.sql
+-- File: sql_models/30 DAYS_CURRENT DAYS.sql
 WITH base AS (
   SELECT
     DATE(date) AS dt,
-    SUM(spend) AS spend,
-    SUM(conversions) AS conversions
+    spend,
+    conversions,
+    conversions * 100 AS revenue
   FROM `ageless-wall-470818-h0.my_dataset.ads_spend`
-  WHERE DATE(date) >= DATE_SUB(CURRENT_DATE(), INTERVAL 60 DAY)
-  GROUP BY dt
+  WHERE date >= DATE_SUB(CURRENT_DATE(), INTERVAL 60 DAY)
 ),
+
 agg AS (
   SELECT
-    CASE WHEN dt >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY) THEN 'last_30' ELSE 'prev_30' END AS period,
-    SUM(spend) AS spend,
-    SUM(conversions) AS conversions
+    CASE 
+      WHEN dt >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY) THEN 'last_30'
+      ELSE 'prev_30'
+    END AS period,
+    SUM(spend) AS total_spend,
+    SUM(conversions) AS total_conversions,
+    SUM(revenue) AS total_revenue
   FROM base
   GROUP BY period
 ),
+
 metrics AS (
   SELECT
     period,
-    spend,
-    conversions,
-    SAFE_DIVIDE(spend, conversions) AS CAC,
-    SAFE_DIVIDE(conversions * 100, spend) AS ROAS
+    total_spend,
+    total_conversions,
+    total_revenue,
+    SAFE_DIVIDE(total_spend, total_conversions) AS CAC,
+    SAFE_DIVIDE(total_revenue, total_spend) AS ROAS
   FROM agg
+),
+
+final AS (
+  SELECT
+    m1.*,
+    -- Valores de la otra ventana
+    m2.CAC AS prev_CAC,
+    m2.ROAS AS prev_ROAS,
+    -- Deltas (% change)
+    SAFE_DIVIDE(m1.CAC - m2.CAC, m2.CAC) * 100 AS CAC_delta_pct,
+    SAFE_DIVIDE(m1.ROAS - m2.ROAS, m2.ROAS) * 100 AS ROAS_delta_pct
+  FROM metrics m1
+  LEFT JOIN metrics m2
+    ON m1.period = 'last_30'
+   AND m2.period = 'prev_30'
+  WHERE m1.period = 'last_30'
 )
-SELECT
-  f1.period AS metric_period,
-  f1.spend,
-  f1.conversions,
-  f1.CAC,
-  f1.ROAS,
-  ROUND(((f1.CAC - f2.CAC) / f2.CAC) * 100, 2) AS CAC_delta_pct,
-  ROUND(((f1.ROAS - f2.ROAS) / f2.ROAS) * 100, 2) AS ROAS_delta_pct
-FROM metrics f1
-JOIN metrics f2
-  ON f1.period = 'last_30' AND f2.period = 'prev_30';
+
+SELECT * FROM final;
+
 
 
 ### Part 4 - Analyst Acces
 
 SQL scripts with parameters
 
-```
+```sql
+-- File: sql_models/PART 3- SQL SCRIPT PARAMETERS.sql
 ##@start_date = "2025-01-01"
 ##@end_date = "2025-01-31"
 
