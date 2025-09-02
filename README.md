@@ -82,7 +82,7 @@ final AS (
 
 SELECT * FROM final;
 
-
+```
 
 ### Part 4 - Analyst Acces
 
